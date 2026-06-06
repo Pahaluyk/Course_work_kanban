@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Task Tracker{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/main.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar__brand">
+      <a href="/projects/" class="navbar__logo">TASK TRACKER</a>
+    </div>
+    <div class="navbar__links" id="nav-links">
+      <a href="/projects/" class="nav-link">Проекты</a>
+      <span class="nav-username" id="nav-username"></span>
+      <span class="nav-role badge" id="nav-role"></span>
+      <button class="btn btn--sm btn--outline" id="btn-logout" style="display:none">Выйти</button>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/auth.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

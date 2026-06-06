@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Проекты — Task Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h2 class="page-title">Мои проекты</h2>
+  <button class="btn btn--primary" id="btn-new-project" style="display:none">+ Новый проект</button>
+</div>
+
+<div class="projects-grid" id="projects-grid">
+  <div class="loader">Загрузка...</div>
+</div>
+
+<!-- Modal: create/edit project -->
+<div class="modal-overlay" id="modal-project" style="display:none">
+  <div class="modal">
+    <div class="modal__header">
+      <h3 id="modal-project-title">Новый проект</h3>
+      <button class="modal__close" id="btn-close-project-modal">✕</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-group">
+        <label class="form-label">Название</label>
+        <input class="form-input" id="proj-name" placeholder="Название проекта" required />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Описание</label>
+        <textarea class="form-input" id="proj-desc" rows="3" placeholder="Описание..."></textarea>
+      </div>
+      <div class="alert alert--error" id="proj-error" style="display:none"></div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--outline" id="btn-cancel-project">Отмена</button>
+      <button class="btn btn--primary" id="btn-save-project">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: manage members -->
+<div class="modal-overlay" id="modal-members" style="display:none">
+  <div class="modal modal--wide">
+    <div class="modal__header">
+      <h3>Участники проекта</h3>
+      <button class="modal__close" id="btn-close-members-modal">✕</button>
+    </div>
+    <div class="modal__body">
+      <div id="members-list" class="members-list"></div>
+      <hr style="margin:1rem 0"/>
+      <div class="form-group" id="add-member-section" style="display:none">
+        <label class="form-label">Добавить участника</label>
+        <select class="form-input" id="select-user"></select>
+        <button class="btn btn--primary btn--sm" id="btn-add-member" style="margin-top:.5rem">Добавить</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentUser = null;
+let editingProjectId = null;
+let membersProjectId = null;
+
+async function init() {
+  currentUser = await requireAuth();
+  if (currentUser.role === 'manager') {
+    document.getElementById('btn-new-project').style.display = 'inline-flex';
+  }
+  loadProjects();
+}
+
+async function loadProjects() {
+  const grid = document.getElementById('projects-grid');
+  try {
+    const projects = await api.get('/projects/api/list');
+    if (!projects.length) {
+      grid.innerHTML = '<p class="empty-state">Нет проектов. Создайте первый!</p>';
+      return;
+    }
+    grid.innerHTML = projects.map(p => `
+      <div class="project-card" data-id="${p.id}">
+        <div class="project-card__header">
+          <h3 class="project-card__name">${p.name}</h3>
+          <span class="badge badge--owner">${p.owner.username}</span>
+        </div>
+        <p class="project-card__desc">${p.description || 'Без описания'}</p>
+        <div class="project-card__actions">
+          <a href="/projects/${p.id}/board" class="btn btn--primary btn--sm">Доска</a>
+          <a href="/projects/${p.id}/analytics" class="btn btn--outline btn--sm">Аналитика</a>
+          ${currentUser.role === 'manager' && p.owner_id === currentUser.id ? `
+            <button class="btn btn--outline btn--sm" onclick="openMembers('${p.id}')">Участники</button>
+            <button class="btn btn--outline btn--sm" onclick="openEditProject('${p.id}','${p.name}','${p.description||''}')">Изменить</button>
+            <button class="btn btn--danger btn--sm" onclick="deleteProject('${p.id}')">Удалить</button>
+          ` : ''}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    grid.innerHTML = `<div class="alert alert--error">${e.message}</div>`;
+  }
+}
+
+// ── Create / Edit project ───────────────────────────────────────────────────
+document.getElementById('btn-new-project').onclick = () => {
+  editingProjectId = null;
+  document.getElementById('modal-project-title').textContent = 'Новый проект';
+  document.getElementById('proj-name').value = '';
+  document.getElementById('proj-desc').value = '';
+  document.getElementById('proj-error').style.display = 'none';
+  document.getElementById('modal-project').style.display = 'flex';
+};
+
+function openEditProject(id, name, desc) {
+  editingProjectId = id;
+  document.getElementById('modal-project-title').textContent = 'Редактировать проект';
+  document.getElementById('proj-name').value = name;
+  document.getElementById('proj-desc').value = desc;
+  document.getElementById('proj-error').style.display = 'none';
+  document.getElementById('modal-project').style.display = 'flex';
+}
+
+document.getElementById('btn-save-project').onclick = async () => {
+  const name = document.getElementById('proj-name').value.trim();
+  const desc = document.getElementById('proj-desc').value.trim();
+  const errEl = document.getElementById('proj-error');
+  if (!name) { errEl.textContent = 'Введите название'; errEl.style.display = 'block'; return; }
+  try {
+    if (editingProjectId) {
+      await api.put(`/projects/api/${editingProjectId}`, { name, description: desc });
+    } else {
+      await api.post('/projects/api/create', { name, description: desc });
+    }
+    document.getElementById('modal-project').style.display = 'none';
+    loadProjects();
+  } catch (e) {
+    errEl.textContent = e.message;
+    errEl.style.display = 'block';
+  }
+};
+
+async function deleteProject(id) {
+  if (!confirm('Удалить проект и все его задачи?')) return;
+  try {
+    await api.delete(`/projects/api/${id}`);
+    loadProjects();
+  } catch (e) { alert(e.message); }
+}
+
+document.getElementById('btn-close-project-modal').onclick = () =>
+  document.getElementById('modal-project').style.display = 'none';
+document.getElementById('btn-cancel-project').onclick = () =>
+  document.getElementById('modal-project').style.display = 'none';
+
+// ── Members modal ───────────────────────────────────────────────────────────
+async function openMembers(projectId) {
+  membersProjectId = projectId;
+  document.getElementById('modal-members').style.display = 'flex';
+  document.getElementById('add-member-section').style.display =
+    currentUser.role === 'manager' ? 'block' : 'none';
+  await loadMembers(projectId);
+  if (currentUser.role === 'manager') await loadUserSelect(projectId);
+}
+
+async function loadMembers(projectId) {
+  const list = document.getElementById('members-list');
+  try {
+    const members = await api.get(`/projects/api/${projectId}/members`);
+    list.innerHTML = members.length
+      ? members.map(m => `
+          <div class="member-row">
+            <span>${m.username} <span class="badge">${m.role}</span></span>
+            ${currentUser.role === 'manager' ? `<button class="btn btn--danger btn--xs" onclick="removeMember('${projectId}','${m.id}')">✕</button>` : ''}
+          </div>`).join('')
+      : '<p class="empty-state">Нет участников</p>';
+  } catch (e) { list.innerHTML = `<div class="alert alert--error">${e.message}</div>`; }
+}
+
+async function loadUserSelect(projectId) {
+  const sel = document.getElementById('select-user');
+  const [allUsers, members] = await Promise.all([
+    api.get('/projects/api/users/all'),
+    api.get(`/projects/api/${projectId}/members`),
+  ]);
+  const memberIds = new Set(members.map(m => m.id));
+  const options = allUsers.filter(u => !memberIds.has(u.id) && u.id !== currentUser.id);
+  sel.innerHTML = options.map(u => `<option value="${u.id}">${u.username} (${u.role})</option>`).join('');
+}
+
+document.getElementById('btn-add-member').onclick = async () => {
+  const userId = document.getElementById('select-user').value;
+  if (!userId) return;
+  try {
+    await api.post(`/projects/api/${membersProjectId}/members/${userId}`, {});
+    await loadMembers(membersProjectId);
+    await loadUserSelect(membersProjectId);
+  } catch (e) { alert(e.message); }
+};
+
+async function removeMember(projectId, userId) {
+  try {
+    await api.delete(`/projects/api/${projectId}/members/${userId}`);
+    await loadMembers(projectId);
+    await loadUserSelect(projectId);
+  } catch (e) { alert(e.message); }
+}
+
+document.getElementById('btn-close-members-modal').onclick = () =>
+  document.getElementById('modal-members').style.display = 'none';
+
+init();
+</script>
+{% endblock %}

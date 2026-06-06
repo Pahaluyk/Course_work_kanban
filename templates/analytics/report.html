@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Аналитика — Task Tracker{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div style="display:flex;align-items:center;gap:1rem">
+    <a href="/projects/{{ project_id }}/board" class="btn btn--outline btn--sm">← Доска</a>
+    <h2 class="page-title" id="analytics-project-name">Аналитика</h2>
+  </div>
+  <div id="export-section" style="display:none">
+    <a href="/analytics/project/{{ project_id }}/export/csv" class="btn btn--primary">⬇ Экспорт CSV</a>
+  </div>
+</div>
+
+<div class="analytics-grid" id="analytics-content">
+  <div class="loader">Загрузка данных...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PROJECT_ID = '{{ project_id }}';
+
+async function init() {
+  const user = await requireAuth();
+  if (user.role !== 'observer') {
+    document.getElementById('export-section').style.display = 'block';
+  }
+  await loadAnalytics();
+}
+
+async function loadAnalytics() {
+  const container = document.getElementById('analytics-content');
+  try {
+    const data = await api.get(`/analytics/project/${PROJECT_ID}`);
+    document.getElementById('analytics-project-name').textContent = `Аналитика — ${data.project_name}`;
+
+    const STATUS_LABELS = {
+      backlog: 'Backlog', todo: 'To Do', in_progress: 'In Progress',
+      review: 'Review', done: 'Done'
+    };
+
+    container.innerHTML = `
+      <!-- Summary cards -->
+      <div class="stat-cards">
+        <div class="stat-card">
+          <div class="stat-card__value">${data.total_tasks}</div>
+          <div class="stat-card__label">Всего задач</div>
+        </div>
+        <div class="stat-card stat-card--done">
+          <div class="stat-card__value">${data.task_progress.find(p=>p.status==='done')?.count || 0}</div>
+          <div class="stat-card__label">Выполнено</div>
+        </div>
+        <div class="stat-card stat-card--overdue">
+          <div class="stat-card__value">${data.overdue_count}</div>
+          <div class="stat-card__label">Просрочено</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card__value">${data.member_load.length}</div>
+          <div class="stat-card__label">Участников</div>
+        </div>
+      </div>
+
+      <!-- Progress by status -->
+      <div class="analytics-section">
+        <h3 class="section-title">Прогресс по статусам</h3>
+        <div class="progress-bars">
+          ${data.task_progress.map(p => {
+            const pct = data.total_tasks ? Math.round(p.count / data.total_tasks * 100) : 0;
+            return `
+              <div class="progress-row">
+                <span class="progress-label">${STATUS_LABELS[p.status] || p.status}</span>
+                <div class="progress-bar-wrap">
+                  <div class="progress-bar progress-bar--${p.status}" style="width:${pct}%"></div>
+                </div>
+                <span class="progress-count">${p.count} (${pct}%)</span>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <!-- Member load table -->
+      <div class="analytics-section">
+        <h3 class="section-title">Нагрузка участников</h3>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Участник</th>
+              <th>Всего задач</th>
+              <th>Выполнено</th>
+              <th>Просрочено</th>
+              <th>Прогресс</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${data.member_load.map(m => {
+              const pct = m.total ? Math.round(m.done / m.total * 100) : 0;
+              return `
+                <tr>
+                  <td><strong>${m.username}</strong></td>
+                  <td>${m.total}</td>
+                  <td class="text--success">${m.done}</td>
+                  <td class="${m.overdue > 0 ? 'text--danger' : ''}">${m.overdue}</td>
+                  <td>
+                    <div class="mini-progress">
+                      <div class="mini-progress__bar" style="width:${pct}%"></div>
+                    </div>
+                    <small>${pct}%</small>
+                  </td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  } catch(e) {
+    container.innerHTML = `<div class="alert alert--error">${e.message}</div>`;
+  }
+}
+
+init();
+</script>
+{% endblock %}

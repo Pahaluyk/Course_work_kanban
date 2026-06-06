@@ -1,0 +1,417 @@
+{% extends "base.html" %}
+{% block title %}Доска — Task Tracker{% endblock %}
+
+{% block content %}
+<div class="board-header">
+  <div class="board-header__left">
+    <a href="/projects/" class="btn btn--outline btn--sm">← Проекты</a>
+    <h2 class="board-title" id="board-project-name">Загрузка...</h2>
+  </div>
+  <div class="board-header__right">
+    <button class="btn btn--outline btn--sm" id="btn-filter-assignee">Исполнитель</button>
+    <button class="btn btn--outline btn--sm" id="btn-filter-priority">Приоритет</button>
+    <button class="btn btn--primary" id="btn-new-task" style="display:none">+ Новая задача</button>
+    <a href="/projects/{{ project_id }}/analytics" class="btn btn--outline btn--sm">Отчёт</a>
+  </div>
+</div>
+
+<!-- Filter bar -->
+<div class="filter-bar" id="filter-bar" style="display:none">
+  <select class="form-input form-input--sm" id="filter-assignee-sel">
+    <option value="">Все исполнители</option>
+  </select>
+  <select class="form-input form-input--sm" id="filter-priority-sel">
+    <option value="">Все приоритеты</option>
+    <option value="high">Высокий</option>
+    <option value="medium">Средний</option>
+    <option value="low">Низкий</option>
+  </select>
+  <button class="btn btn--sm btn--outline" id="btn-clear-filter">Сбросить</button>
+</div>
+
+<!-- Kanban board -->
+<div class="kanban-board" id="kanban-board">
+  {% for col in [('backlog','BACKLOG'),('todo','TO DO'),('in_progress','IN PROGRESS'),('review','REVIEW'),('done','DONE')] %}
+  <div class="kanban-col" data-status="{{ col[0] }}" ondragover="event.preventDefault()" ondrop="onDrop(event,'{{ col[0] }}')">
+    <div class="kanban-col__header">
+      <span class="kanban-col__title">{{ col[1] }}</span>
+      <span class="kanban-col__count badge" id="count-{{ col[0] }}">0</span>
+    </div>
+    <div class="kanban-col__cards" id="col-{{ col[0] }}"></div>
+    <button class="kanban-col__add" id="add-{{ col[0] }}" onclick="openCreateTask('{{ col[0] }}')" style="display:none">
+      + Добавить задачу
+    </button>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Modal: task form (create/edit) -->
+<div class="modal-overlay" id="modal-task" style="display:none">
+  <div class="modal modal--wide">
+    <div class="modal__header">
+      <h3 id="modal-task-title">Новая задача</h3>
+      <button class="modal__close" onclick="closeTaskModal()">✕</button>
+    </div>
+    <div class="modal__body">
+      <div class="form-row">
+        <div class="form-group form-group--grow">
+          <label class="form-label">Название *</label>
+          <input class="form-input" id="task-title" placeholder="Название задачи" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Описание</label>
+        <textarea class="form-input" id="task-desc" rows="3" placeholder="Описание задачи..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Статус</label>
+          <select class="form-input" id="task-status">
+            <option value="backlog">Backlog</option>
+            <option value="todo">To Do</option>
+            <option value="in_progress">In Progress</option>
+            <option value="review">Review</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Приоритет</label>
+          <select class="form-input" id="task-priority">
+            <option value="high">Высокий</option>
+            <option value="medium" selected>Средний</option>
+            <option value="low">Низкий</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Срок</label>
+          <input class="form-input" type="date" id="task-due" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Исполнитель</label>
+          <select class="form-input" id="task-assignee">
+            <option value="">— не назначен —</option>
+          </select>
+        </div>
+      </div>
+      <div class="alert alert--error" id="task-error" style="display:none"></div>
+    </div>
+    <div class="modal__footer">
+      <button class="btn btn--danger" id="btn-delete-task" style="display:none" onclick="deleteTask()">Удалить</button>
+      <button class="btn btn--outline" onclick="closeTaskModal()">Отмена</button>
+      <button class="btn btn--primary" id="btn-save-task" onclick="saveTask()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: task detail (for developer/observer) -->
+<div class="modal-overlay" id="modal-task-detail" style="display:none">
+  <div class="modal modal--wide">
+    <div class="modal__header">
+      <h3 id="detail-title">Задача</h3>
+      <button class="modal__close" onclick="document.getElementById('modal-task-detail').style.display='none'">✕</button>
+    </div>
+    <div class="modal__body">
+      <div class="detail-meta">
+        <span class="badge badge--status" id="detail-status"></span>
+        <span class="badge badge--priority" id="detail-priority"></span>
+        <span id="detail-due"></span>
+      </div>
+      <p class="detail-desc" id="detail-desc"></p>
+      <div class="detail-row">
+        <div><strong>Проект</strong><p id="detail-project"></p></div>
+        <div><strong>Исполнитель</strong><p id="detail-assignee"></p></div>
+      </div>
+
+      <!-- Status change for developer -->
+      <div id="status-change-section" style="display:none; margin-top:1rem">
+        <label class="form-label">Изменить статус</label>
+        <div class="status-btn-group">
+          <button class="btn btn--sm btn--outline" onclick="quickStatus('backlog')">Backlog</button>
+          <button class="btn btn--sm btn--outline" onclick="quickStatus('todo')">To Do</button>
+          <button class="btn btn--sm btn--outline" onclick="quickStatus('in_progress')">In Progress</button>
+          <button class="btn btn--sm btn--outline" onclick="quickStatus('review')">Review</button>
+          <button class="btn btn--sm btn--primary" onclick="quickStatus('done')">Done</button>
+        </div>
+      </div>
+
+      <!-- Attachments section -->
+      <div class="attachments-section">
+        <h4>Вложения</h4>
+        <div id="attachments-list"></div>
+        <div id="upload-section" style="display:none; margin-top:.5rem">
+          <input type="file" id="file-input" />
+          <button class="btn btn--sm btn--outline" onclick="uploadFile()">Загрузить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PROJECT_ID = '{{ project_id }}';
+let currentUser = null;
+let allTasks = [];
+let editingTaskId = null;
+let detailTaskId = null;
+let projectMembers = [];
+
+async function init() {
+  currentUser = await requireAuth();
+  // Load project name
+  try {
+    const proj = await api.get(`/projects/api/${PROJECT_ID}`);
+    document.getElementById('board-project-name').textContent = proj.name;
+    document.getElementById('detail-project').textContent = proj.name;
+  } catch(e) {}
+
+  // Show manager controls
+  if (currentUser.role === 'manager') {
+    document.getElementById('btn-new-task').style.display = 'inline-flex';
+    document.querySelectorAll('[id^="add-"]').forEach(b => b.style.display = 'block');
+  }
+
+  await loadMembers();
+  await loadTasks();
+}
+
+async function loadMembers() {
+  try {
+    projectMembers = await api.get(`/projects/api/${PROJECT_ID}/members`);
+    const sel = document.getElementById('task-assignee');
+    const filterSel = document.getElementById('filter-assignee-sel');
+    projectMembers.forEach(m => {
+      sel.innerHTML += `<option value="${m.id}">${m.username} (${m.role})</option>`;
+      filterSel.innerHTML += `<option value="${m.id}">${m.username}</option>`;
+    });
+  } catch(e) {}
+}
+
+async function loadTasks() {
+  try {
+    allTasks = await api.get(`/tasks/api/${PROJECT_ID}/list`);
+    renderBoard(allTasks);
+  } catch(e) { console.error(e); }
+}
+
+function renderBoard(tasks) {
+  const statuses = ['backlog','todo','in_progress','review','done'];
+  statuses.forEach(s => {
+    const col = document.getElementById(`col-${s}`);
+    const count = document.getElementById(`count-${s}`);
+    const filtered = tasks.filter(t => t.status === s);
+    count.textContent = filtered.length;
+    col.innerHTML = filtered.map(t => taskCard(t)).join('');
+  });
+}
+
+const PRIORITY_LABELS = { high: 'Высокий', medium: 'Средний', low: 'Низкий' };
+const PRIORITY_CLASS = { high: 'badge--high', medium: 'badge--medium', low: 'badge--low' };
+
+function taskCard(t) {
+  const assignee = t.assignee ? t.assignee.username : '—';
+  const due = t.due_date ? `Срок: ${t.due_date}` : '';
+  const overdue = t.due_date && t.due_date < new Date().toISOString().slice(0,10) && t.status !== 'done';
+  return `
+    <div class="task-card ${overdue ? 'task-card--overdue' : ''}" draggable="true"
+         ondragstart="onDragStart(event,'${t.id}')"
+         onclick="openTaskDetail('${t.id}')">
+      <div class="task-card__id">TASK-${t.id.slice(-4).toUpperCase()}</div>
+      <div class="task-card__title">${t.title}</div>
+      <div class="task-card__meta">
+        <span class="badge ${PRIORITY_CLASS[t.priority]}">${PRIORITY_LABELS[t.priority]}</span>
+        ${due ? `<span class="task-card__due ${overdue?'overdue':''}">${due}</span>` : ''}
+      </div>
+      <div class="task-card__assignee">Исполнитель: ${assignee}</div>
+    </div>`;
+}
+
+// ── Drag & Drop ──────────────────────────────────────────────────────────────
+let dragTaskId = null;
+function onDragStart(event, taskId) { dragTaskId = taskId; }
+async function onDrop(event, newStatus) {
+  if (!dragTaskId) return;
+  try {
+    await api.patch(`/tasks/api/detail/${dragTaskId}/status`, { status: newStatus });
+    const task = allTasks.find(t => t.id === dragTaskId);
+    if (task) task.status = newStatus;
+    renderBoard(applyFilters(allTasks));
+  } catch(e) { alert(e.message); }
+  dragTaskId = null;
+}
+
+// ── Filters ──────────────────────────────────────────────────────────────────
+document.getElementById('btn-filter-assignee').onclick = () =>
+  document.getElementById('filter-bar').style.display =
+    document.getElementById('filter-bar').style.display === 'none' ? 'flex' : 'none';
+document.getElementById('btn-filter-priority').onclick = () =>
+  document.getElementById('filter-bar').style.display = 'flex';
+
+document.getElementById('filter-assignee-sel').onchange = () => renderBoard(applyFilters(allTasks));
+document.getElementById('filter-priority-sel').onchange = () => renderBoard(applyFilters(allTasks));
+document.getElementById('btn-clear-filter').onclick = () => {
+  document.getElementById('filter-assignee-sel').value = '';
+  document.getElementById('filter-priority-sel').value = '';
+  renderBoard(allTasks);
+};
+
+function applyFilters(tasks) {
+  const assignee = document.getElementById('filter-assignee-sel').value;
+  const priority = document.getElementById('filter-priority-sel').value;
+  return tasks.filter(t =>
+    (!assignee || t.assignee_id === assignee) &&
+    (!priority || t.priority === priority)
+  );
+}
+
+// ── Create task ──────────────────────────────────────────────────────────────
+function openCreateTask(status = 'backlog') {
+  editingTaskId = null;
+  document.getElementById('modal-task-title').textContent = 'Новая задача';
+  document.getElementById('task-title').value = '';
+  document.getElementById('task-desc').value = '';
+  document.getElementById('task-status').value = status;
+  document.getElementById('task-priority').value = 'medium';
+  document.getElementById('task-due').value = '';
+  document.getElementById('task-assignee').value = '';
+  document.getElementById('btn-delete-task').style.display = 'none';
+  document.getElementById('task-error').style.display = 'none';
+  document.getElementById('modal-task').style.display = 'flex';
+}
+
+document.getElementById('btn-new-task').onclick = () => openCreateTask('backlog');
+
+async function saveTask() {
+  const errEl = document.getElementById('task-error');
+  errEl.style.display = 'none';
+  const title = document.getElementById('task-title').value.trim();
+  if (!title) { errEl.textContent = 'Введите название'; errEl.style.display = 'block'; return; }
+  const payload = {
+    title,
+    description: document.getElementById('task-desc').value,
+    status: document.getElementById('task-status').value,
+    priority: document.getElementById('task-priority').value,
+    due_date: document.getElementById('task-due').value || null,
+    assignee_id: document.getElementById('task-assignee').value || null,
+  };
+  try {
+    if (editingTaskId) {
+      await api.put(`/tasks/api/detail/${editingTaskId}`, payload);
+    } else {
+      await api.post(`/tasks/api/${PROJECT_ID}/create`, payload);
+    }
+    closeTaskModal();
+    await loadTasks();
+  } catch(e) { errEl.textContent = e.message; errEl.style.display = 'block'; }
+}
+
+async function deleteTask() {
+  if (!confirm('Удалить задачу?')) return;
+  try {
+    await api.delete(`/tasks/api/detail/${editingTaskId}`);
+    closeTaskModal();
+    await loadTasks();
+  } catch(e) { alert(e.message); }
+}
+
+function closeTaskModal() { document.getElementById('modal-task').style.display = 'none'; }
+
+// ── Task detail (developer/observer) ─────────────────────────────────────────
+async function openTaskDetail(taskId) {
+  detailTaskId = taskId;
+  // Manager gets edit form
+  if (currentUser.role === 'manager') {
+    const task = allTasks.find(t => t.id === taskId);
+    if (!task) return;
+    editingTaskId = taskId;
+    document.getElementById('modal-task-title').textContent = task.title;
+    document.getElementById('task-title').value = task.title;
+    document.getElementById('task-desc').value = task.description || '';
+    document.getElementById('task-status').value = task.status;
+    document.getElementById('task-priority').value = task.priority;
+    document.getElementById('task-due').value = task.due_date || '';
+    document.getElementById('task-assignee').value = task.assignee_id || '';
+    document.getElementById('btn-delete-task').style.display = 'inline-flex';
+    document.getElementById('task-error').style.display = 'none';
+    document.getElementById('modal-task').style.display = 'flex';
+    return;
+  }
+
+  // Developer / Observer — show detail modal
+  const task = allTasks.find(t => t.id === taskId);
+  if (!task) return;
+  document.getElementById('detail-title').textContent = task.title;
+  document.getElementById('detail-status').textContent = task.status;
+  document.getElementById('detail-priority').textContent = PRIORITY_LABELS[task.priority];
+  document.getElementById('detail-due').textContent = task.due_date ? `Срок: ${task.due_date}` : '';
+  document.getElementById('detail-desc').textContent = task.description || 'Нет описания';
+  document.getElementById('detail-assignee').textContent = task.assignee ? task.assignee.username : '—';
+
+  // Show status change for developer
+  const statusSection = document.getElementById('status-change-section');
+  statusSection.style.display =
+    (currentUser.role === 'developer' && task.assignee_id === currentUser.id) ? 'block' : 'none';
+
+  // Show upload section
+  document.getElementById('upload-section').style.display =
+    currentUser.role !== 'observer' ? 'block' : 'none';
+
+  await loadAttachments(taskId);
+  document.getElementById('modal-task-detail').style.display = 'flex';
+}
+
+async function quickStatus(status) {
+  try {
+    await api.patch(`/tasks/api/detail/${detailTaskId}/status`, { status });
+    await loadTasks();
+    document.getElementById('detail-status').textContent = status;
+    const task = allTasks.find(t => t.id === detailTaskId);
+    if (task) task.status = status;
+  } catch(e) { alert(e.message); }
+}
+
+// ── Attachments ──────────────────────────────────────────────────────────────
+async function loadAttachments(taskId) {
+  const list = document.getElementById('attachments-list');
+  try {
+    const atts = await api.get(`/attachments/task/${taskId}`);
+    list.innerHTML = atts.length
+      ? atts.map(a => `
+          <div class="attachment-row">
+            <a href="/attachments/download/${a.id}" target="_blank" class="attachment-link">📎 ${a.filename}</a>
+            ${currentUser.role !== 'observer' ? `<button class="btn btn--xs btn--danger" onclick="deleteAttachment('${a.id}')">✕</button>` : ''}
+          </div>`).join('')
+      : '<p class="empty-state">Нет вложений</p>';
+  } catch(e) { list.innerHTML = ''; }
+}
+
+async function uploadFile() {
+  const input = document.getElementById('file-input');
+  if (!input.files[0]) return;
+  const formData = new FormData();
+  formData.append('file', input.files[0]);
+  try {
+    const token = localStorage.getItem('token');
+    const resp = await fetch(`/attachments/task/${detailTaskId}/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!resp.ok) { const e = await resp.json(); throw new Error(e.detail); }
+    input.value = '';
+    await loadAttachments(detailTaskId);
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteAttachment(attId) {
+  if (!confirm('Удалить вложение?')) return;
+  try {
+    await api.delete(`/attachments/${attId}`);
+    await loadAttachments(detailTaskId);
+  } catch(e) { alert(e.message); }
+}
+
+init();
+</script>
+{% endblock %}
