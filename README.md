@@ -1,5 +1,43 @@
 # Task Tracker
 
+
+## Структура проекта
+
+```
+task_tracker/
+├── main.py
+├── .env
+├── requirements.txt
+├── init.sql
+├── app/
+│   ├── database.py
+│   ├── models.py
+│   ├── schemas.py
+│   ├── services/
+│   │   └── auth.py
+│   ├── routers/
+│   │   ├── auth.py
+│   │   ├── projects.py
+│   │   ├── tasks.py
+│   │   ├── attachments.py
+│   │   └── analytics.py
+│   └── static/
+│       ├── css/main.css
+│       ├── js/api.js
+│       ├── js/auth.js
+│       └── uploads/
+└── templates/
+    ├── base.html
+    ├── auth/
+    │   ├── login.html
+    │   └── register.html
+    ├── projects/
+    │   ├── list.html
+    │   └── board.html
+    └── analytics/
+        └── report.html
+```
+
 ## Установка и запуск
 
 ### 1. Клонировать репозиторий
