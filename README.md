@@ -11,9 +11,26 @@ cd Course_work_kanban
 
 ### 2. Создать базу данных
 
+Если не знаете пароль от пользователя postgres — сбросьте его:
+
+```bash
+psql -U postgres
+\password postgres
+# ввести новый пароль: 12345
+\q
+```
+
+Затем создайте базу и таблицы:
+
 ```bash
 psql -U postgres -c "CREATE DATABASE task_tracker;"
 psql -U postgres -d task_tracker -f init.sql
+```
+
+После этого укажите тот же пароль в файле `.env`:
+
+```
+DATABASE_URL=postgresql+asyncpg://postgres:12345@localhost:5432/task_tracker
 ```
 
 ### 3. Создать виртуальное окружение и установить зависимости
@@ -37,6 +54,3 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 Приложение доступно по адресу http://localhost:8000
-
-
-(проект учебный поэтому в репозитории .env)
